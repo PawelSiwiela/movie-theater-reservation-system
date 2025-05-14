@@ -1,3 +1,13 @@
-public class MessageType {
-    
+public enum MessageType {
+    CHECK_AVAILABILITY,
+    MAKE_RESERVATION,
+    CANCEL_RESERVATION,
+    GET_MOVIES,
+    GET_SCREENINGS,
+    GET_SEATS,
+    GET_RESERVATIONS,
+    GET_ROOM,
+    GET_SEAT_STATUS,
+    GET_RESERVATION_STATUS,
+    RESPONSE
 }
