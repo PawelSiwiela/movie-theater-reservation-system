@@ -81,17 +81,17 @@ public class Screening implements Serializable {
 
     // Utility methods
     public boolean isSeatAvailable(int row, int seatNumber) {
-        if (row < 1 || row > room.getRows() || number < 1 || number > room.getSeatsPerRow()) {
+        if (row < 1 || row > room.getRows() || seatNumber < 1 || seatNumber > room.getSeatsPerRow()) {
             throw new IllegalArgumentException("Invalid seat position");
         }
-        return availableSeats[row - 1][number - 1];
+        return availableSeats[row - 1][seatNumber - 1];
     }
 
     public void updateSeatStatus(int row, int seatNumber, boolean isAvailable) {
-        if (row < 1 || row > room.getRows() || number < 1 || number > room.getSeatsPerRow()) {
+        if (row < 1 || row > room.getRows() || seatNumber < 1 || seatNumber > room.getSeatsPerRow()) {
             throw new IllegalArgumentException("Invalid seat position");
         }
-        availableSeats[row - 1][number - 1] = isAvailable;
+        availableSeats[row - 1][seatNumber - 1] = isAvailable;
     }
 
     @Override

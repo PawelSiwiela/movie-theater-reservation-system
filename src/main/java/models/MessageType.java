@@ -1,3 +1,5 @@
+package models;
+
 public enum MessageType {
     CHECK_AVAILABILITY,
     MAKE_RESERVATION,
