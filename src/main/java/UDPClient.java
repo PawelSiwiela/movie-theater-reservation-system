@@ -114,105 +114,110 @@ public class UDPClient {
     }
     
     private void makeReservation() {
-        // List screenings
-        listScreenings();
-        
-        // Get screening selection
-        int screeningId = getIntInput("\nEnter screening ID to book: ");
-        
-        // Get seat information
-        Message request = new Message(MessageType.GET_SEATS, screeningId);
-        Message response = sendRequest(request);
-        
-        if (response == null || !response.isSuccess()) {
-            System.out.println("Failed to get seat information: " + 
-                             (response != null ? response.getStatusMessage() : "No response from server"));
-            return;
-        }
-        
-        // Display seat map
-        boolean[][] availableSeats = (boolean[][]) response.getPayload();
-        displaySeatMap(availableSeats);
-        
-        // Get customer info
-        System.out.print("\nEnter your name: ");
-        String customerName = scanner.nextLine();
-        
-        System.out.print("Enter your email: ");
-        String customerEmail = scanner.nextLine();
-        
-        System.out.print("Enter your phone: ");
-        String customerPhone = scanner.nextLine();
-        
-        // Get seat selections
-        List<Seat> selectedSeats = new ArrayList<>();
-        boolean selectingSeats = true;
-        
-        while (selectingSeats) {
-            int row = getIntInput("Enter row number (0 to finish): ");
-            if (row == 0) {
-                selectingSeats = false;
-                continue;
+        try {
+            // List screenings
+            listScreenings();
+            
+            // Get screening selection
+            int screeningId = getIntInput("\nEnter screening ID to book: ");
+            
+            // Get seat information
+            Message request = new Message(MessageType.GET_SEATS, screeningId);
+            Message response = sendRequest(request);
+            
+            if (response == null || !response.isSuccess()) {
+                System.out.println("Failed to get seat information: " + 
+                                 (response != null ? response.getStatusMessage() : "No response from server"));
+                return;
             }
             
-            int seatNum = getIntInput("Enter seat number: ");
+            // Display seat map
+            boolean[][] availableSeats = (boolean[][]) response.getPayload();
+            displaySeatMap(availableSeats);
             
-            if (row <= 0 || row > availableSeats.length || 
-                seatNum <= 0 || seatNum > availableSeats[0].length) {
-                System.out.println("Invalid seat position.");
-                continue;
+            // Get customer info
+            System.out.print("\nEnter your name: ");
+            String customerName = scanner.nextLine();
+            
+            System.out.print("Enter your email: ");
+            String customerEmail = scanner.nextLine();
+            
+            System.out.print("Enter your phone: ");
+            String customerPhone = scanner.nextLine();
+            
+            // Get seat selections
+            List<Seat> selectedSeats = new ArrayList<>();
+            boolean selectingSeats = true;
+            
+            while (selectingSeats) {
+                int row = getIntInput("Enter row number (0 to finish): ");
+                if (row == 0) {
+                    selectingSeats = false;
+                    continue;
+                }
+                
+                int seatNum = getIntInput("Enter seat number: ");
+                
+                if (row <= 0 || row > availableSeats.length || 
+                    seatNum <= 0 || seatNum > availableSeats[0].length) {
+                    System.out.println("Invalid seat position.");
+                    continue;
+                }
+                
+                if (!availableSeats[row-1][seatNum-1]) {
+                    System.out.println("This seat is not available.");
+                    continue;
+                }
+                
+                selectedSeats.add(new Seat(row, seatNum, SeatStatus.RESERVED));
+                System.out.println("Seat " + row + "-" + seatNum + " added to selection.");
             }
             
-            if (!availableSeats[row-1][seatNum-1]) {
-                System.out.println("This seat is not available.");
-                continue;
+            if (selectedSeats.isEmpty()) {
+                System.out.println("No seats selected. Reservation cancelled.");
+                return;
             }
             
-            selectedSeats.add(new Seat(row, seatNum, SeatStatus.RESERVED));
-            System.out.println("Seat " + row + "-" + seatNum + " added to selection.");
-        }
-        
-        if (selectedSeats.isEmpty()) {
-            System.out.println("No seats selected. Reservation cancelled.");
-            return;
-        }
-        
-        // Create reservation
-        // We need to get the screening details first
-        Message getScreeningRequest = new Message(MessageType.GET_SCREENINGS, screeningId);
-        Message getScreeningResponse = sendRequest(getScreeningRequest);
-        
-        if (getScreeningResponse == null || !getScreeningResponse.isSuccess()) {
-            System.out.println("Failed to get screening details: " + 
-                             (getScreeningResponse != null ? getScreeningResponse.getStatusMessage() : "No response from server"));
-            return;
-        }
-        
-        List<Screening> screenings = (List<Screening>) getScreeningResponse.getPayload();
-        if (screenings.isEmpty()) {
-            System.out.println("Screening not found.");
-            return;
-        }
-        
-        Screening screening = screenings.get(0);
-        Reservation reservation = new Reservation(screening, selectedSeats, customerName, customerEmail, customerPhone);
-        
-        // Send reservation request
-        Message reservationRequest = new Message(MessageType.MAKE_RESERVATION, reservation);
-        Message reservationResponse = sendRequest(reservationRequest);
-        
-        if (reservationResponse != null && reservationResponse.isSuccess()) {
-            Reservation confirmedReservation = (Reservation) reservationResponse.getPayload();
-            System.out.println("\nReservation successful!");
-            System.out.println("Reservation ID: " + confirmedReservation.getReservationId());
-            System.out.println("Movie: " + confirmedReservation.getScreening().getMovie().getTitle());
-            System.out.println("Time: " + confirmedReservation.getScreening().getScreeningTime());
-            System.out.println("Number of seats: " + confirmedReservation.getReservedSeats().size());
-            System.out.println("Total price: " + confirmedReservation.getTotalPrice());
-            System.out.println("\nPlease save your reservation ID for future reference.");
-        } else {
-            System.out.println("Reservation failed: " + 
-                             (reservationResponse != null ? reservationResponse.getStatusMessage() : "No response from server"));
+            // Create reservation
+            // We need to get the screening details first
+            Message getScreeningRequest = new Message(MessageType.GET_SCREENINGS, screeningId);
+            Message getScreeningResponse = sendRequest(getScreeningRequest);
+            
+            if (getScreeningResponse == null || !getScreeningResponse.isSuccess()) {
+                System.out.println("Failed to get screening details: " + 
+                                 (getScreeningResponse != null ? getScreeningResponse.getStatusMessage() : "No response from server"));
+                return;
+            }
+            
+            List<Screening> screenings = (List<Screening>) getScreeningResponse.getPayload();
+            if (screenings.isEmpty()) {
+                System.out.println("Screening not found.");
+                return;
+            }
+            
+            Screening screening = screenings.get(0);
+            Reservation reservation = new Reservation(screening, selectedSeats, customerName, customerEmail, customerPhone);
+            
+            // Send reservation request
+            Message reservationRequest = new Message(MessageType.MAKE_RESERVATION, reservation);
+            Message reservationResponse = sendRequest(reservationRequest);
+            
+            if (reservationResponse != null && reservationResponse.isSuccess()) {
+                Reservation confirmedReservation = (Reservation) reservationResponse.getPayload();
+                System.out.println("\nReservation successful!");
+                System.out.println("Reservation ID: " + confirmedReservation.getReservationId());
+                System.out.println("Movie: " + confirmedReservation.getScreening().getMovie().getTitle());
+                System.out.println("Time: " + confirmedReservation.getScreening().getScreeningTime());
+                System.out.println("Number of seats: " + confirmedReservation.getReservedSeats().size());
+                System.out.println("Total price: " + confirmedReservation.getTotalPrice());
+                System.out.println("\nPlease save your reservation ID for future reference.");
+            } else {
+                System.out.println("Reservation failed: " + 
+                                 (reservationResponse != null ? reservationResponse.getStatusMessage() : "No response from server"));
+            }
+        } catch (Exception e) {
+            System.err.println("Error during reservation process: " + e.getMessage());
+            System.out.println("Reservation cancelled due to error.");
         }
     }
     

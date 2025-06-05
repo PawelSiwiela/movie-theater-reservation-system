@@ -1,7 +1,10 @@
+import dao.*;
 import models.*;
 
 import java.io.*;
 import java.net.*;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -17,6 +20,13 @@ public class UDPServer {
     private List<Screening> screenings;
     private List<Reservation> reservations;
     
+    // Database access
+    private DatabaseManager dbManager;
+    private MovieDAO movieDAO;
+    private RoomDAO roomDAO;
+    private ScreeningDAO screeningDAO;
+    private ReservationDAO reservationDAO;
+    
     public UDPServer(int port) {
         this.port = port;
         this.movies = new ArrayList<>();
@@ -24,8 +34,80 @@ public class UDPServer {
         this.screenings = new ArrayList<>();
         this.reservations = new ArrayList<>();
         
-        // Initialize with sample data for testing
-        initializeTestData();
+        // Initialize database connection
+        initializeDatabase();
+    }
+    
+    private void initializeDatabase() {
+        try {
+            // Create database manager and initialize the database
+            this.dbManager = new DatabaseManager();
+            dbManager.initDatabase();
+            
+            // Get connection for DAOs
+            Connection conn = dbManager.getConnection();
+            this.movieDAO = new MovieDAO(conn);
+            this.roomDAO = new RoomDAO(conn);
+            this.screeningDAO = new ScreeningDAO(conn);
+            this.reservationDAO = new ReservationDAO(conn);
+            
+            // Load data from database
+            loadDataFromDatabase();
+            
+        } catch (SQLException e) {
+            System.err.println("Failed to initialize database: " + e.getMessage());
+            e.printStackTrace();
+            
+            // If database initialization fails, use sample data
+            initializeTestData();
+        }
+    }
+    
+    private void loadDataFromDatabase() {
+        try {
+            // Load all data from the database
+            movies = movieDAO.findAll();
+            rooms = roomDAO.findAll();
+            screenings = screeningDAO.findAll();
+            reservations = reservationDAO.findAll();
+            
+            // If no data in database, initialize with test data
+            if (movies.isEmpty()) {
+                System.out.println("No data found in database. Initializing with test data.");
+                initializeTestData();
+                saveDataToDatabase();
+            }
+        } catch (SQLException e) {
+            System.err.println("Error loading data from database: " + e.getMessage());
+            e.printStackTrace();
+            
+            // If loading fails, use sample data
+            initializeTestData();
+        }
+    }
+    
+    private void saveDataToDatabase() {
+        try {
+            // Save all current data to the database
+            for (Movie movie : movies) {
+                movieDAO.insert(movie);
+            }
+            
+            for (Room room : rooms) {
+                roomDAO.insert(room);
+            }
+            
+            for (Screening screening : screenings) {
+                screeningDAO.insert(screening);
+            }
+            
+            for (Reservation reservation : reservations) {
+                reservationDAO.insert(reservation);
+            }
+        } catch (SQLException e) {
+            System.err.println("Error saving data to database: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
     
     public void start() {
@@ -149,7 +231,16 @@ public class UDPServer {
         // If all seats available, mark them as reserved
         reservation.confirmReservation();
         reservations.add(reservation);
-        return true;
+        
+        // Save to database
+        try {
+            reservationDAO.insert(reservation);
+            return true;
+        } catch (SQLException e) {
+            System.err.println("Error saving reservation to database: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
     }
     
     private boolean cancelReservation(String reservationId) {
@@ -160,7 +251,16 @@ public class UDPServer {
         if (optionalReservation.isPresent()) {
             Reservation reservation = optionalReservation.get();
             reservation.cancelReservation();
-            return true;
+            
+            // Update in database
+            try {
+                reservationDAO.updateStatus(reservationId, ReservationStatus.CANCELLED);
+                return true;
+            } catch (SQLException e) {
+                System.err.println("Error updating reservation in database: " + e.getMessage());
+                e.printStackTrace();
+                return false;
+            }
         }
         
         return false;
@@ -218,6 +318,11 @@ public class UDPServer {
         running = false;
         if (serverSocket != null && !serverSocket.isClosed()) {
             serverSocket.close();
+        }
+        
+        // Close database connection
+        if (dbManager != null) {
+            dbManager.closeConnection();
         }
     }
     
