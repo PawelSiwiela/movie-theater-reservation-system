@@ -28,21 +28,32 @@ public class ReservationDAO {
                                 "totalPrice DOUBLE, " +
                                 "FOREIGN KEY (screeningId) REFERENCES screenings(screeningId))";
         
-        // Tabela dla miejsc w rezerwacji
+        // For the reserved_seats table
         String reservedSeatsSql = "CREATE TABLE IF NOT EXISTS reserved_seats (" +
                                   "id INT AUTO_INCREMENT PRIMARY KEY, " +
                                   "reservationId VARCHAR(36), " +
-                                  "row INT, " +
+                                  "seat_row INT, " +  // Changed here
                                   "number INT, " +
                                   "FOREIGN KEY (reservationId) REFERENCES reservations(reservationId))";
+        
+        // Tabela dla miejsc
+        String seatsSql = "CREATE TABLE IF NOT EXISTS seats (" +
+                          "seatId INT AUTO_INCREMENT PRIMARY KEY, " +
+                          "roomId INT, " +
+                          "seat_row INT, " +  // Zmiana nazwy kolumny
+                          "number INT, " +
+                          "status VARCHAR(20), " +
+                          "FOREIGN KEY (roomId) REFERENCES rooms(roomId))";
         
         try (Statement stmt = connection.createStatement()) {
             stmt.execute(reservationSql);
             stmt.execute(reservedSeatsSql);
+            stmt.execute(seatsSql);
         }
     }
     
     public void insert(Reservation reservation) throws SQLException {
+        System.out.println("Inserting reservation: " + reservation.getReservationId());
         connection.setAutoCommit(false);
         
         try {
@@ -68,7 +79,10 @@ public class ReservationDAO {
             insertReservedSeats(reservation);
             
             connection.commit();
+            System.out.println("Reservation inserted successfully");
         } catch (SQLException e) {
+            System.err.println("Error inserting reservation: " + e.getMessage());
+            System.err.println("SQL State: " + e.getSQLState() + ", Error Code: " + e.getErrorCode());
             connection.rollback();
             throw e;
         } finally {
@@ -77,7 +91,7 @@ public class ReservationDAO {
     }
     
     private void insertReservedSeats(Reservation reservation) throws SQLException {
-        String sql = "INSERT INTO reserved_seats (reservationId, row, number) VALUES (?, ?, ?)";
+        String sql = "INSERT INTO reserved_seats (reservationId, seat_row, number) VALUES (?, ?, ?)";
         
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             for (Seat seat : reservation.getReservedSeats()) {
@@ -159,7 +173,7 @@ public class ReservationDAO {
             
             try (ResultSet rs = pstmt.executeQuery()) {
                 while (rs.next()) {
-                    int row = rs.getInt("row");
+                    int row = rs.getInt("seat_row");  // Changed here
                     int number = rs.getInt("number");
                     
                     seats.add(new Seat(row, number, SeatStatus.RESERVED));
@@ -171,13 +185,33 @@ public class ReservationDAO {
     }
     
     public void updateStatus(String id, ReservationStatus status) throws SQLException {
+        // Dodaj więcej logowania, aby sprawdzić, co się dzieje
+        System.out.println("Updating reservation status in database. ID: " + id + ", New status: " + status);
+        
         String sql = "UPDATE reservations SET status = ? WHERE reservationId = ?";
         
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setString(1, status.name());
             pstmt.setString(2, id);
             
-            pstmt.executeUpdate();
+            int updatedRows = pstmt.executeUpdate();
+            System.out.println("Updated " + updatedRows + " rows in database");
+            
+            if (updatedRows == 0) {
+                System.out.println("Warning: No rows were updated for ID: " + id);
+                // Spróbuj znaleźć rekord w bazie
+                try (PreparedStatement checkStmt = connection.prepareStatement(
+                        "SELECT COUNT(*) FROM reservations WHERE reservationId = ?")) {
+                    checkStmt.setString(1, id);
+                    try (ResultSet rs = checkStmt.executeQuery()) {
+                        if (rs.next() && rs.getInt(1) > 0) {
+                            System.out.println("Record exists in database but was not updated");
+                        } else {
+                            System.out.println("Record does not exist in database");
+                        }
+                    }
+                }
+            }
         }
     }
     

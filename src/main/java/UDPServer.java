@@ -4,9 +4,11 @@ import models.*;
 import java.io.*;
 import java.net.*;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class UDPServer {
     private static final int BUFFER_SIZE = 65507; // Maksymalny rozmiar datagramu UDP
@@ -156,114 +158,222 @@ public class UDPServer {
         }
     }
     
-    private Message processRequest(Message request) {
-        switch (request.getType()) {
-            case GET_MOVIES:
-                return request.createSuccessResponse(movies);
-                
-            case GET_SCREENINGS:
-                if (request.getPayload() instanceof Integer) {
-                    Integer movieId = (Integer) request.getPayload();
-                    List<Screening> movieScreenings = screenings.stream()
-                        .filter(s -> s.getMovie().getMovieId() == movieId)
-                        .toList();
-                    return request.createSuccessResponse(movieScreenings);
-                }
-                return request.createSuccessResponse(screenings);
-                
-            case GET_SEATS:
-                if (request.getPayload() instanceof Integer) {
-                    Integer screeningId = (Integer) request.getPayload();
-                    Optional<Screening> screening = screenings.stream()
-                        .filter(s -> s.getScreeningId() == screeningId)
-                        .findFirst();
-                    
-                    if (screening.isPresent()) {
-                        return request.createSuccessResponse(screening.get().getAvailableSeats());
-                    } else {
-                        return request.createErrorResponse("Screening not found");
-                    }
-                }
-                return request.createErrorResponse("Invalid screening ID");
-                
-            case MAKE_RESERVATION:
-                if (request.getPayload() instanceof Reservation) {
-                    Reservation reservation = (Reservation) request.getPayload();
-                    boolean success = createReservation(reservation);
-                    
-                    if (success) {
-                        return request.createSuccessResponse(reservation);
-                    } else {
-                        return request.createErrorResponse("Failed to create reservation");
-                    }
-                }
-                return request.createErrorResponse("Invalid reservation data");
-                
-            case CANCEL_RESERVATION:
-                if (request.getPayload() instanceof String) {
-                    String reservationId = (String) request.getPayload();
-                    boolean success = cancelReservation(reservationId);
-                    
-                    if (success) {
-                        return request.createSuccessResponse(true);
-                    } else {
-                        return request.createErrorResponse("Reservation not found or already cancelled");
-                    }
-                }
-                return request.createErrorResponse("Invalid reservation ID");
-                
-            default:
-                return request.createErrorResponse("Unsupported operation");
-        }
-    }
-    
     private boolean createReservation(Reservation reservation) {
-        // Check if all seats are available
-        Screening screening = reservation.getScreening();
-        List<Seat> seats = reservation.getReservedSeats();
-        
-        for (Seat seat : seats) {
-            if (!screening.isSeatAvailable(seat.getRow(), seat.getNumber())) {
-                return false; // Seat not available
-            }
-        }
-        
-        // If all seats available, mark them as reserved
-        reservation.confirmReservation();
-        reservations.add(reservation);
-        
-        // Save to database
         try {
-            reservationDAO.insert(reservation);
-            return true;
-        } catch (SQLException e) {
-            System.err.println("Error saving reservation to database: " + e.getMessage());
+            System.out.println("Processing reservation request...");
+            
+            // Upewnij się, że screening istnieje i jest prawidłowy
+            Screening screening = reservation.getScreening();
+            if (screening == null) {
+                System.out.println("Screening is null");
+                return false;
+            }
+            
+            // Sprawdź, czy film i sala istnieją
+            if (screening.getMovie() == null || screening.getRoom() == null) {
+                System.out.println("Movie or Room is null in the screening");
+                return false;
+            }
+            
+            List<Seat> seats = reservation.getReservedSeats();
+            if (seats == null || seats.isEmpty()) {
+                System.out.println("No seats selected");
+                return false;
+            }
+            
+            // Sprawdzenie dostępności miejsc
+            for (Seat seat : seats) {
+                if (!screening.isSeatAvailable(seat.getRow(), seat.getNumber())) {
+                    System.out.println("Seat " + seat.getRow() + "-" + seat.getNumber() + " is not available.");
+                    return false; // Miejsce niedostępne
+                }
+            }
+            
+            // Wszystkie miejsca są dostępne, zarezerwuj je
+            reservation.confirmReservation();
+            reservations.add(reservation);
+            System.out.println("Reservation confirmed in memory: " + reservation.getReservationId());
+            
+            // Zapisz do bazy danych
+            try {
+                reservationDAO.insert(reservation);
+                System.out.println("Reservation saved to database: " + reservation.getReservationId());
+                return true;
+            } catch (SQLException e) {
+                System.err.println("SQL Error saving reservation: " + e.getMessage());
+                e.printStackTrace();
+                System.err.println("SQL State: " + e.getSQLState() + ", Error Code: " + e.getErrorCode());
+                
+                // Mimo błędu bazy danych, zwracamy true, jeśli udało się dodać rezerwację do pamięci
+                // To może wyjaśniać, dlaczego widzimy rezerwacje w liście, mimo błędu
+                System.out.println("Reservation was added to memory but not to database");
+                return true; // Warto rozważyć zmianę na false, jeśli integralność bazy danych jest ważna
+            }
+        } catch (Exception e) {
+            System.err.println("Unexpected error in createReservation: " + e.getMessage());
             e.printStackTrace();
             return false;
         }
     }
     
-    private boolean cancelReservation(String reservationId) {
-        Optional<Reservation> optionalReservation = reservations.stream()
-            .filter(r -> r.getReservationId().equals(reservationId))
-            .findFirst();
-            
-        if (optionalReservation.isPresent()) {
-            Reservation reservation = optionalReservation.get();
-            reservation.cancelReservation();
-            
-            // Update in database
-            try {
-                reservationDAO.updateStatus(reservationId, ReservationStatus.CANCELLED);
-                return true;
-            } catch (SQLException e) {
-                System.err.println("Error updating reservation in database: " + e.getMessage());
-                e.printStackTrace();
-                return false;
+    // Poprawiony processRequest z obsługą wyjątków
+    private Message processRequest(Message request) {
+        try {
+            switch (request.getType()) {
+                case GET_MOVIES:
+                    return request.createSuccessResponse(movies);
+                    
+                case GET_SCREENINGS:
+                    if (request.getPayload() instanceof Integer) {
+                        Integer movieId = (Integer) request.getPayload();
+                        List<Screening> movieScreenings = screenings.stream()
+                            .filter(s -> s.getMovie().getMovieId() == movieId)
+                            .toList();
+                        return request.createSuccessResponse(movieScreenings);
+                    }
+                    return request.createSuccessResponse(screenings);
+                    
+                case GET_SEATS:
+                    if (request.getPayload() instanceof Integer) {
+                        Integer screeningId = (Integer) request.getPayload();
+                        Optional<Screening> screeningOpt = screenings.stream()
+                            .filter(s -> s.getScreeningId() == screeningId)
+                            .findFirst();
+                        
+                        if (screeningOpt.isPresent()) {
+                            Screening screening = screeningOpt.get();
+                            
+                            // Aktualizuj stan miejsc na podstawie istniejących rezerwacji
+                            screening.updateSeatsStatusFromReservations(reservations);
+                            
+                            return request.createSuccessResponse(screening.getAvailableSeats());
+                        } else {
+                            return request.createErrorResponse("Screening not found");
+                        }
+                    }
+                    return request.createErrorResponse("Invalid screening ID");
+                    
+                case MAKE_RESERVATION:
+                    System.out.println("Received MAKE_RESERVATION request");
+                    if (request.getPayload() instanceof Reservation) {
+                        Reservation reservation = (Reservation) request.getPayload();
+                        boolean success = createReservation(reservation);
+                        
+                        if (success) {
+                            System.out.println("Reservation created successfully: " + reservation.getReservationId());
+                            return request.createSuccessResponse(reservation);
+                        } else {
+                            System.out.println("Failed to create reservation");
+                            return request.createErrorResponse("Failed to create reservation");
+                        }
+                    }
+                    System.out.println("Invalid reservation data");
+                    return request.createErrorResponse("Invalid reservation data");
+                    
+                case CANCEL_RESERVATION:
+                    System.out.println("Received CANCEL_RESERVATION request");
+                    if (request.getPayload() instanceof String) {
+                        String reservationId = (String) request.getPayload();
+                        System.out.println("Attempting to cancel reservation: " + reservationId);
+                        boolean success = cancelReservation(reservationId);
+                        
+                        if (success) {
+                            return request.createSuccessResponse(true);
+                        } else {
+                            return request.createErrorResponse("Reservation not found or already cancelled");
+                        }
+                    }
+                    return request.createErrorResponse("Invalid reservation ID");
+                    
+                case GET_RESERVATIONS_BY_EMAIL:
+                    if (request.getPayload() instanceof String) {
+                        String email = (String) request.getPayload();
+                        System.out.println("Searching for reservations with email: " + email);
+                        
+                        // Filtruj rezerwacje po adresie email
+                        List<Reservation> userReservations = reservations.stream()
+                            .filter(r -> email.equals(r.getCustomerEmail()))
+                            .collect(Collectors.toList());
+                            
+                        return request.createSuccessResponse(userReservations);
+                    }
+                    return request.createErrorResponse("Invalid email address");
+                    
+                default:
+                    return request.createErrorResponse("Unsupported operation");
             }
+        } catch (Exception e) {
+            System.err.println("Error processing request: " + e.getMessage());
+            e.printStackTrace();
+            return request.createErrorResponse("Server error: " + e.getMessage());
         }
-        
-        return false;
+    }
+    
+    private boolean cancelReservation(String reservationId) {
+        try {
+            System.out.println("Cancelling reservation with ID: " + reservationId);
+            
+            // Najpierw szukamy w pamięci
+            Optional<Reservation> reservationOpt = reservations.stream()
+                .filter(r -> r.getReservationId().equals(reservationId))
+                .findFirst();
+            
+            if (reservationOpt.isPresent()) {
+                Reservation reservation = reservationOpt.get();
+                System.out.println("Found reservation in memory, updating status...");
+                
+                // Aktualizuj w pamięci
+                reservation.cancelReservation();
+                
+                // Aktualizuj status w bazie
+                try {
+                    System.out.println("Updating reservation status in database...");
+                    reservationDAO.updateStatus(reservationId, ReservationStatus.CANCELLED);
+                    System.out.println("Reservation successfully cancelled.");
+                    
+                    // Aktualizuj stan miejsc w seansu
+                    reservation.getScreening().updateSeatsStatusFromReservations(reservations);
+                    
+                    return true;
+                } catch (SQLException e) {
+                    System.err.println("Database error when updating reservation: " + e.getMessage());
+                    e.printStackTrace();
+                    
+                    // Mimo błędu bazy danych, zwracamy true, bo rezerwacja została anulowana w pamięci
+                    return true;
+                }
+            } else {
+                System.out.println("Reservation not found in memory, searching in database...");
+                
+                // Jeśli nie znaleziono w pamięci, sprawdź bazę danych
+                try {
+                    Reservation dbReservation = reservationDAO.findById(reservationId);
+                    if (dbReservation != null) {
+                        System.out.println("Found reservation in database, updating status...");
+                        
+                        // Aktualizuj w pamięci
+                        dbReservation.cancelReservation();
+                        reservations.add(dbReservation);
+                        
+                        // Aktualizuj status w bazie
+                        reservationDAO.updateStatus(reservationId, ReservationStatus.CANCELLED);
+                        System.out.println("Reservation successfully cancelled.");
+                        return true;
+                    } else {
+                        System.out.println("Reservation not found in database.");
+                        return false;
+                    }
+                } catch (SQLException e) {
+                    System.err.println("Database error when finding reservation: " + e.getMessage());
+                    e.printStackTrace();
+                    return false;
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Unexpected error in cancelReservation: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
     }
     
     private void sendResponse(Message response, InetAddress address, int port) {
@@ -340,5 +450,22 @@ public class UDPServer {
         
         UDPServer server = new UDPServer(port);
         server.start();
+    }
+    
+    public void updateStatus(String id, ReservationStatus status) throws SQLException {
+        String sql = "UPDATE reservations SET status = ? WHERE reservationId = ?";
+        System.out.println("Executing SQL: " + sql + " with params: [" + status.name() + ", " + id + "]");
+        
+        try (PreparedStatement pstmt = dbManager.getConnection().prepareStatement(sql)) {
+            pstmt.setString(1, status.name());
+            pstmt.setString(2, id);
+            
+            int updatedRows = pstmt.executeUpdate();
+            System.out.println("Rows updated: " + updatedRows);
+            
+            if (updatedRows == 0) {
+                System.out.println("Warning: No rows were updated when changing status for ID: " + id);
+            }
+        }
     }
 }

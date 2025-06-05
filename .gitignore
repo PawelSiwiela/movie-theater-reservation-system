@@ -36,3 +36,7 @@ target/
 build/
 out/
 bin/
+
+# H2 Database files
+*.mv.db
+*.trace.db

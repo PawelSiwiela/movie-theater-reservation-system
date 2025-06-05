@@ -26,7 +26,7 @@ public class RoomDAO {
         String seatsSql = "CREATE TABLE IF NOT EXISTS seats (" +
                           "seatId INT AUTO_INCREMENT PRIMARY KEY, " +
                           "roomId INT, " +
-                          "row INT, " +
+                          "seat_row INT, " +  // Changed 'row' to 'seat_row' to avoid reserved keyword
                           "number INT, " +
                           "status VARCHAR(20), " +
                           "FOREIGN KEY (roomId) REFERENCES rooms(roomId))";
@@ -55,7 +55,7 @@ public class RoomDAO {
     }
     
     private void insertSeats(Room room) throws SQLException {
-        String sql = "INSERT INTO seats (roomId, row, number, status) VALUES (?, ?, ?, ?)";
+        String sql = "INSERT INTO seats (roomId, seat_row, number, status) VALUES (?, ?, ?, ?)";
         
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             for (int i = 0; i < room.getRows(); i++) {
@@ -103,7 +103,7 @@ public class RoomDAO {
             
             try (ResultSet rs = pstmt.executeQuery()) {
                 while (rs.next()) {
-                    int row = rs.getInt("row");
+                    int row = rs.getInt("seat_row"); // Change here
                     int number = rs.getInt("number");
                     SeatStatus status = SeatStatus.valueOf(rs.getString("status"));
                     

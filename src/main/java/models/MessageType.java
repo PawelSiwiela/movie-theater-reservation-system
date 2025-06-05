@@ -11,5 +11,6 @@ public enum MessageType {
     GET_ROOM,
     GET_SEAT_STATUS,
     GET_RESERVATION_STATUS,
-    RESPONSE
+    RESPONSE,
+    GET_RESERVATIONS_BY_EMAIL
 }

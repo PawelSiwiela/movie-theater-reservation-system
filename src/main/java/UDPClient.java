@@ -45,6 +45,9 @@ public class UDPClient {
                 case 4:
                     cancelReservation();
                     break;
+                case 5:
+                    listMyReservations();
+                    break;
                 case 0:
                     running = false;
                     System.out.println("Exiting program. Goodbye!");
@@ -63,6 +66,7 @@ public class UDPClient {
         System.out.println("2. List screenings for a movie");
         System.out.println("3. Make reservation");
         System.out.println("4. Cancel reservation");
+        System.out.println("5. List my reservations");
         System.out.println("0. Exit");
     }
     
@@ -212,8 +216,8 @@ public class UDPClient {
                 System.out.println("Total price: " + confirmedReservation.getTotalPrice());
                 System.out.println("\nPlease save your reservation ID for future reference.");
             } else {
-                System.out.println("Reservation failed: " + 
-                                 (reservationResponse != null ? reservationResponse.getStatusMessage() : "No response from server"));
+                System.out.println("There was an issue with your reservation. Please check your reservations list to confirm if it was processed.");
+                System.out.println("Error: " + (reservationResponse != null ? reservationResponse.getStatusMessage() : "No response from server"));
             }
         } catch (Exception e) {
             System.err.println("Error during reservation process: " + e.getMessage());
@@ -243,16 +247,112 @@ public class UDPClient {
     }
     
     private void cancelReservation() {
-        System.out.print("\nEnter reservation ID to cancel: ");
-        String reservationId = scanner.nextLine();
+        try {
+            System.out.print("\nEnter your email address: ");
+            String email = scanner.nextLine();
+            
+            // Pobierz wszystkie rezerwacje dla podanego adresu email
+            Message request = new Message(MessageType.GET_RESERVATIONS_BY_EMAIL, email);
+            Message response = sendRequest(request);
+            
+            if (response == null || !response.isSuccess()) {
+                System.out.println("Failed to get reservations: " + 
+                                 (response != null ? response.getStatusMessage() : "No response from server"));
+                return;
+            }
+            
+            List<Reservation> reservations = (List<Reservation>) response.getPayload();
+            if (reservations.isEmpty()) {
+                System.out.println("No reservations found for email: " + email);
+                return;
+            }
+            
+            // Wyświetl listę rezerwacji
+            System.out.println("\nYour reservations:");
+            System.out.println("=================");
+            
+            for (int i = 0; i < reservations.size(); i++) {
+                Reservation res = reservations.get(i);
+                System.out.println((i+1) + ". ID: " + res.getReservationId() + 
+                                 ", Movie: " + res.getScreening().getMovie().getTitle() +
+                                 ", Time: " + res.getScreening().getScreeningTime() +
+                                 ", Status: " + res.getStatus());
+            }
+            
+            // Wybór rezerwacji do anulowania
+            int choice = getIntInput("\nEnter the number of the reservation to cancel (0 to cancel): ");
+            if (choice <= 0 || choice > reservations.size()) {
+                System.out.println("Operation cancelled.");
+                return;
+            }
+            
+            Reservation selectedReservation = reservations.get(choice-1);
+            
+            // Sprawdź, czy rezerwacja już nie jest anulowana
+            if (selectedReservation.getStatus() == ReservationStatus.CANCELLED) {
+                System.out.println("This reservation is already cancelled.");
+                return;
+            }
+            
+            // Potwierdzenie anulowania
+            System.out.println("\nYou selected to cancel this reservation:");
+            System.out.println("Movie: " + selectedReservation.getScreening().getMovie().getTitle());
+            System.out.println("Time: " + selectedReservation.getScreening().getScreeningTime());
+            System.out.println("Seats: " + selectedReservation.getReservedSeats().size());
+            
+            System.out.print("Are you sure you want to cancel this reservation? (y/n): ");
+            String confirm = scanner.nextLine();
+            
+            if (!confirm.equalsIgnoreCase("y") && !confirm.equalsIgnoreCase("yes")) {
+                System.out.println("Cancellation aborted.");
+                return;
+            }
+            
+            // Anulowanie rezerwacji
+            String reservationId = selectedReservation.getReservationId();
+            System.out.println("Sending cancellation request for reservation: " + reservationId);
+            
+            Message cancelRequest = new Message(MessageType.CANCEL_RESERVATION, reservationId);
+            Message cancelResponse = sendRequest(cancelRequest);
+            
+            if (cancelResponse != null && cancelResponse.isSuccess()) {
+                System.out.println("Reservation successfully cancelled.");
+            } else {
+                System.out.println("Failed to cancel reservation: " + 
+                                 (cancelResponse != null ? cancelResponse.getStatusMessage() : "No response from server"));
+            }
+        } catch (Exception e) {
+            System.err.println("Error during cancellation process: " + e.getMessage());
+            e.printStackTrace();
+            System.out.println("Cancellation failed due to error.");
+        }
+    }
+    
+    private void listMyReservations() {
+        System.out.print("\nEnter your email address: ");
+        String email = scanner.nextLine();
         
-        Message request = new Message(MessageType.CANCEL_RESERVATION, reservationId);
+        Message request = new Message(MessageType.GET_RESERVATIONS_BY_EMAIL, email);
         Message response = sendRequest(request);
         
         if (response != null && response.isSuccess()) {
-            System.out.println("Reservation successfully cancelled.");
+            List<Reservation> reservations = (List<Reservation>) response.getPayload();
+            if (reservations.isEmpty()) {
+                System.out.println("No reservations found for email: " + email);
+                return;
+            }
+            
+            System.out.println("\nYour reservations:");
+            System.out.println("=================");
+            
+            for (Reservation res : reservations) {
+                System.out.println("ID: " + res.getReservationId() + 
+                                 ", Movie: " + res.getScreening().getMovie().getTitle() +
+                                 ", Time: " + res.getScreening().getScreeningTime() +
+                                 ", Status: " + res.getStatus());
+            }
         } else {
-            System.out.println("Failed to cancel reservation: " + 
+            System.out.println("Failed to get reservations: " + 
                              (response != null ? response.getStatusMessage() : "No response from server"));
         }
     }
@@ -273,8 +373,8 @@ public class UDPClient {
             byte[] receiveData = new byte[BUFFER_SIZE];
             DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
             
-            // Set timeout to 5 seconds
-            clientSocket.setSoTimeout(5000);
+            // Zwiększ timeout z 5 do 20 sekund
+            clientSocket.setSoTimeout(20000);
             clientSocket.receive(receivePacket);
             
             // Deserialize the response

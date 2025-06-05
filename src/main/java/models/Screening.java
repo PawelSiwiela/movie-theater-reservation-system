@@ -2,6 +2,8 @@ package models;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 
 public class Screening implements Serializable {
     private int screeningId;
@@ -92,6 +94,24 @@ public class Screening implements Serializable {
             throw new IllegalArgumentException("Invalid seat position");
         }
         availableSeats[row - 1][seatNumber - 1] = isAvailable;
+    }
+
+    public void updateSeatsStatusFromReservations(List<Reservation> reservations) {
+        // Pobierz wszystkie potwierdzone rezerwacje dla tego seansu
+        List<Reservation> screeningReservations = reservations.stream()
+                .filter(r -> r.getScreening().getScreeningId() == this.screeningId &&
+                        r.getStatus() == ReservationStatus.CONFIRMED)
+                .toList();
+
+        // Zresetuj stan miejsc
+        initializeSeats();
+
+        // Zaktualizuj stan miejsc na podstawie rezerwacji
+        for (Reservation res : screeningReservations) {
+            for (Seat seat : res.getReservedSeats()) {
+                updateSeatStatus(seat.getRow(), seat.getNumber(), false);
+            }
+        }
     }
 
     @Override
